@@ -24,6 +24,7 @@ import numpy as np
 from utils import image_rescale
 from html import escape
 from lxml import html
+import sys
 
 def is_valid(img):
     if len(img['html']['structure']['tokens']) > args.max_tag_len:
@@ -82,6 +83,7 @@ parser.add_argument('--max_cell_len', default=100, type=int, help='maximium numb
 parser.add_argument('--max_image_size', default=512, type=int, help='maximium image width/height a sample to be included')
 parser.add_argument('--image_size', default=448, type=int, help='target image rescaling size')
 parser.add_argument('--keep_AR', default=False, action='store_true', help='keep aspect ratio and pad with zeros when rescaling images')
+parser.add_argument('--max_sample_num', default=-1, type=int, help='the max sample number, if -1, take all the sample')
 
 args = parser.parse_args()
 
@@ -93,12 +95,22 @@ train_image_cells = []
 train_image_cell_bboxes = []
 val_gt = dict()
 word_freq_tag = Counter()
+train_sample_num = sys.maxsize
+val_sample_num = sys.maxsize
+
+if args.max_sample_num != -1:
+    train_sample_num = int(args.max_sample_num*0.8)
+    val_sample_num = int(args.max_sample_num*0.2)
 
 word_freq_cell = Counter()
 with jsonlines.open(args.annotation, 'r') as reader:
+    train_count = 0
+    val_count = 0
+
     for img in tqdm(reader):
         if img['split'] == 'train':
-            if is_valid(img):
+            if train_count < train_sample_num and is_valid(img):
+                train_count += 1
                 tags = []
                 cells = []
                 cell_bboxes = []
@@ -118,7 +130,8 @@ with jsonlines.open(args.annotation, 'r') as reader:
                 train_image_tags.append(tags)
                 train_image_cells.append(cells)
                 train_image_cell_bboxes.append(cell_bboxes)
-        elif img['split'] == 'val':
+        elif img['split'] == 'val' and val_count < val_sample_num:
+            val_count += 1
             HTML, tag_len, cell_len_max = format_html(img)
             with Image.open(os.path.join(args.image_dir, img['split'], img['filename'])) as im:
                 val_gt[img['filename']] = {
